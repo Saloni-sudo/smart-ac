@@ -89,6 +89,8 @@ These are non-negotiable for this project:
    explicitly labeled as simulated.** This applies to UI, API responses, and logs.
 4. **Any external data (e.g. electricity tariffs) must come from a real, cited
    source.** Never invent figures. Cite the source in a comment or the docs.
+5. Simulated time is the project's only clock. Every piece of downstream code 
+   charts, persistence, scheduling, pricing — reads reading.timestamp. Nothing anywhere calls Date.now() to reason about when something happened.
 
 ## 6. Workflow rules
 
