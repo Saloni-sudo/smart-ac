@@ -20,6 +20,11 @@ if (process.env.CLIENT_ORIGIN) {
   allowedOrigins.push(process.env.CLIENT_ORIGIN);             // deployed frontend origin
 }
 
+// Accepted setpoint range for an incoming command. Mirrors the client control
+// bounds; assumed simulation limits, not a spec for any real thermostat.
+const MIN_TARGET_C = 18;   // °C — assumed minimum allowed setpoint (sim value)
+const MAX_TARGET_C = 30;   // °C — assumed maximum allowed setpoint (sim value)
+
 app.get('/api/hello', (req, res) => {
   res.json({ message: 'hello from the server' });
 });
@@ -51,11 +56,29 @@ driver.onReading((reading) => {
 });
 
 io.on('connection', (socket) => {
-  // Accept declarative desired-state Commands and reconcile via the manager.
+  // Accept declarative desired-state Commands and reconcile via the manager. A
+  // rejected command is logged with one clear line saying what was rejected and
+  // why, instead of being silently dropped.
   socket.on('command', (command) => {
-    if (command && command.unitId) {
-      manager.sendCommand(command.unitId, command);
+    if (!command || !command.unitId) {
+      console.warn(`Rejected command: missing unitId (received ${JSON.stringify(command)})`);
+      return;
     }
+    const { unitId, power, mode, targetTemp } = command;
+    if (power !== 'on' && power !== 'off') {
+      console.warn(`Rejected command for ${unitId}: invalid power ${JSON.stringify(power)} (expected "on" or "off")`);
+      return;
+    }
+    if (mode !== 'cool' && mode !== 'idle') {
+      console.warn(`Rejected command for ${unitId}: invalid mode ${JSON.stringify(mode)} (expected "cool" or "idle")`);
+      return;
+    }
+    if (typeof targetTemp !== 'number' || !Number.isFinite(targetTemp) ||
+        targetTemp < MIN_TARGET_C || targetTemp > MAX_TARGET_C) {
+      console.warn(`Rejected command for ${unitId}: targetTemp ${JSON.stringify(targetTemp)} out of range ${MIN_TARGET_C}-${MAX_TARGET_C} °C`);
+      return;
+    }
+    manager.sendCommand(unitId, command);
   });
 });
 
