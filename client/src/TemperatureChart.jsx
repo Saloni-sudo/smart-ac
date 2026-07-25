@@ -2,7 +2,8 @@
 // Live line chart of roomTemp over simulated time for one unit, with a reference
 // line at the current (actual) targetTemp. Plots ONLY the readings received over
 // the socket — no smoothing, interpolation, or padding. Straight segments connect
-// real points (type="linear"); each vertex is an actual reading.
+// real points (type="linear"); each vertex is an actual reading. A secondary element:
+// present but visually quieter than the hero number.
 import {
   LineChart,
   Line,
@@ -23,40 +24,34 @@ function TemperatureChart({ history, targetTemp, status }) {
   // Empty-history placeholder: a friendly message instead of an empty axis.
   if (history.length === 0) {
     return (
-      <div
-        style={{
-          height: 320,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          border: '1px solid var(--border)',
-          borderRadius: 8,
-          color: 'var(--text)',
-        }}
-      >
-        {status === 'connected'
-          ? 'Waiting for first reading…'
-          : 'Connecting to simulation…'}
-      </div>
+      <section className="card chart-card">
+        <h2 className="section-title">Temperature history</h2>
+        <div className="placeholder">
+          {status === 'connected'
+            ? 'Waiting for first reading…'
+            : 'Connecting to simulation…'}
+        </div>
+      </section>
     );
   }
 
   return (
-    <div>
-      <ResponsiveContainer width="100%" height={320}>
+    <section className="card chart-card">
+      <h2 className="section-title">Temperature history</h2>
+      <ResponsiveContainer width="100%" height={280}>
         <LineChart data={history} margin={{ top: 8, right: 16, bottom: 24, left: 0 }}>
           <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
           <XAxis
             dataKey="timestamp"
             tickFormatter={formatSimTime}
             minTickGap={40}
-            tick={{ fill: 'var(--text)', fontSize: 12 }}
-            label={{ value: 'Simulated time', position: 'insideBottom', offset: -12, fill: 'var(--text)' }}
+            tick={{ fill: 'var(--muted)', fontSize: 12 }}
+            label={{ value: 'Simulated time', position: 'insideBottom', offset: -12, fill: 'var(--muted)' }}
           />
           <YAxis
             unit="°C"
             domain={['auto', 'auto']}
-            tick={{ fill: 'var(--text)', fontSize: 12 }}
+            tick={{ fill: 'var(--muted)', fontSize: 12 }}
             width={56}
           />
           <Tooltip
@@ -68,22 +63,23 @@ function TemperatureChart({ history, targetTemp, status }) {
               y={targetTemp}
               stroke="var(--accent)"
               strokeDasharray="4 4"
-              label={{ value: `target ${targetTemp}°C`, fill: 'var(--accent)', fontSize: 12, position: 'right' }}
+              label={{ value: `target ${targetTemp}°C`, fill: 'var(--accent)', fontSize: 12, position: 'insideTopRight' }}
             />
           )}
           <Line
             type="linear"            // straight segments between real points — no smoothing
             dataKey="roomTemp"
-            stroke="var(--text-h)"
+            stroke="var(--accent)"
+            strokeWidth={2}
             dot={false}
             isAnimationActive={false}
           />
         </LineChart>
       </ResponsiveContainer>
-      <p style={{ fontSize: 13, color: 'var(--text)', marginTop: 8 }}>
+      <p className="note">
         Chart data comes from a physics simulation, not real hardware.
       </p>
-    </div>
+    </section>
   );
 }
 

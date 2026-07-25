@@ -52,61 +52,40 @@ function App() {
   };
 
   return (
-    <div style={{ fontFamily: 'sans-serif', padding: 40, maxWidth: 900, margin: '0 auto' }}>
-      <h1 style={{ fontSize: 40, margin: '0 0 8px' }}>Smart AC — {UNIT_ID}</h1>
-      <p style={{ color: 'var(--text)', marginBottom: 24 }}>
-        Live physics simulation. Values below are simulated, not from real hardware.
-      </p>
+    <div className="page">
+      <header className="page-header">
+        <h1>Smart AC</h1>
+        <p>Live physics simulation — values below are simulated, not from real hardware.</p>
+      </header>
 
       {/* Disconnected banner — controls are disabled while this shows. */}
       {disconnected && (
-        <div
-          style={{
-            background: 'rgba(220, 38, 38, 0.12)',
-            border: '1px solid rgba(220, 38, 38, 0.5)',
-            color: '#dc2626',
-            borderRadius: 8,
-            padding: '10px 16px',
-            marginBottom: 20,
-          }}
-        >
+        <div className="banner banner--danger">
           Disconnected from the simulation — trying to reconnect. Controls are
           disabled until the connection is restored.
         </div>
       )}
 
       {/* Connecting state: before the socket's first connect, replace the dashboard
-          with a simple message rather than a blank or broken chart. */}
+          with a simple card rather than a blank or broken chart. */}
       {status === 'connecting' ? (
-        <div
-          style={{
-            height: 320,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            border: '1px solid var(--border)',
-            borderRadius: 8,
-            color: 'var(--text)',
-          }}
-        >
-          Connecting to simulation…
+        <div className="card">
+          <div className="placeholder">Connecting to simulation…</div>
         </div>
       ) : (
         <>
-          <TemperatureChart
-            history={history}
-            targetTemp={latest ? latest.targetTemp : undefined}
-            status={status}
-          />
-          <div style={{ height: 28 }} />
           <ReadoutPanel reading={latest} />
-          <div style={{ height: 28 }} />
           <Controls
             desiredOn={desiredOn}
             desiredTarget={desiredTarget}
             onTogglePower={handleTogglePower}
             onTargetChange={handleTargetChange}
             disabled={controlsDisabled}
+          />
+          <TemperatureChart
+            history={history}
+            targetTemp={latest ? latest.targetTemp : undefined}
+            status={status}
           />
         </>
       )}
