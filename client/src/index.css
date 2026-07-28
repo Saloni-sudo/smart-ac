@@ -378,3 +378,76 @@ code {
     min-width: 100%;
   }
 }
+
+/* ======================================================================= */
+/* Phase 2B — site navigation and the history page's event log.            */
+/* Additive only: no existing rule above is modified.                       */
+/* ======================================================================= */
+
+.site-nav {
+  max-width: 760px;                 /* matches .page so the links line up with content */
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-5) 0;
+  display: flex;
+  gap: var(--space-4);
+}
+
+.site-nav__link {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  text-decoration: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-pill);
+  transition: color 0.2s, background 0.2s;
+}
+.site-nav__link:hover {
+  color: var(--text-h);
+}
+.site-nav__link--current {
+  color: var(--text-h);
+  background: var(--surface-2);
+}
+
+.event-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.event-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+.event-item:last-child {
+  border-bottom: none;
+}
+
+.event-time {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  min-width: 120px;
+  font-variant-numeric: tabular-nums;
+}
+
+.event-desc {
+  font-size: var(--text-sm);
+  color: var(--text-h);
+}
+
+@media (max-width: 640px) {
+  .site-nav {
+    padding: var(--space-4) var(--space-4) 0;
+  }
+  .event-item {
+    flex-direction: column;         /* stack time above description on narrow screens */
+    gap: var(--space-1);
+  }
+  .event-time {
+    min-width: 0;
+  }
+}

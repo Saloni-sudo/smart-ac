@@ -7,6 +7,9 @@ const { Server } = require('socket.io');
 
 const createDriver = require('./core/driverFactory');
 const DeviceManager = require('./core/DeviceManager');
+const connectDB = require('./db/connect');
+const ReadingRecorder = require('./persistence/ReadingRecorder');
+const readingsRouter = require('./routes/readings');
 
 const app = express();
 app.use(cors());                    // allow the browser front-end to call this server
@@ -29,6 +32,9 @@ app.get('/api/hello', (req, res) => {
   res.json({ message: 'hello from the server' });
 });
 
+// Read-only history endpoints. Mounted after /api/hello, which is untouched.
+app.use('/api/readings', readingsRouter);
+
 // One HTTP server carries both Express and Socket.io.
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -38,6 +44,10 @@ const io = new Server(server, {
 // Build the device stack: a driver (chosen by env) behind the DeviceManager.
 const driver = createDriver();
 const manager = new DeviceManager(driver);
+
+// Persist every reading. The recorder subscribes to the same reading stream the socket
+// broadcast uses, via the driver's onReading contract — it holds no other coupling.
+const recorder = new ReadingRecorder(driver);   // constructed for its subscription
 
 // Seed one simulated unit. Every value here is an ASSUMED simulation value, not a
 // measured figure for any real room or AC.
@@ -82,8 +92,16 @@ io.on('connection', (socket) => {
   });
 });
 
-driver.start();
+// Connect to the database BEFORE the tick loop starts, so we never emit a reading we
+// can't store. connectDB exits the process if the database is unreachable.
+async function start() {
+  await connectDB();
 
-server.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+  driver.start();
+
+  server.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+}
+
+start();
