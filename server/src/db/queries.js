@@ -117,13 +117,71 @@ function deriveEvents(readings) {
   return events;
 }
 
+// Group system (thermostat) events into per-hour buckets.
+//
+// TIME: buckets are SIMULATED-time hours, floored from each event's own `timestamp`.
+// Nothing here reads the wall clock. Boundaries are aligned to UTC hours because stored
+// timestamps are UTC, so the grouping is deterministic regardless of server timezone.
+//
+// Every count is one real derived acOn transition — nothing is estimated or fabricated.
+// BOTH directions are counted: onCount for switches to on, offCount for switches to off,
+// and neither is dropped. A "cycle" here means one real change of compressor state, so
+// cycleCount === onCount + offCount (i.e. how many times acOn actually flipped that hour).
+// Only hours that actually contain system events get a bucket; empty hours are omitted.
+function summarizeSystemEvents(events) {
+  const buckets = new Map();          // hourStart ISO -> bucket
+  let totalOn = 0;
+  let totalOff = 0;
+
+  for (const event of events) {
+    if (event.type !== 'ac') continue;          // system (acOn) transitions only
+
+    const hourStart = new Date(event.timestamp);
+    hourStart.setUTCMinutes(0, 0, 0);           // floor to the simulated hour
+    const key = hourStart.toISOString();
+
+    if (!buckets.has(key)) {
+      buckets.set(key, {
+        hourStart: key,
+        hourEnd: new Date(hourStart.getTime() + MS_PER_HOUR).toISOString(),
+        onCount: 0,
+        offCount: 0,
+        cycleCount: 0,
+      });
+    }
+
+    const bucket = buckets.get(key);
+    if (event.acOn) {
+      bucket.onCount += 1;
+      totalOn += 1;
+    } else {
+      bucket.offCount += 1;
+      totalOff += 1;
+    }
+    bucket.cycleCount = bucket.onCount + bucket.offCount;
+  }
+
+  return {
+    totalOn,
+    totalOff,
+    totalSystemEvents: totalOn + totalOff,
+    buckets: [...buckets.values()].sort((a, b) => a.hourStart.localeCompare(b.hourStart)),
+  };
+}
+
 // Derived event log for a unit over the last `hours` of simulated time, optionally
 // narrowed to one category. Returns the newest MAX_EVENTS events, newest first, and says
 // whether older ones were dropped. `category` filters which events are returned; it never
 // changes how they are detected, and nothing is deleted — 'all' still returns everything.
 async function getEvents(unitId, hours, category = 'all') {
   const window = await resolveWindow(unitId, hours);
-  if (!window) return { unitId, hours, category, limit: MAX_EVENTS, truncated: false, events: [] };
+  if (!window) {
+    return {
+      unitId, hours, category, limit: MAX_EVENTS, truncated: false,
+      systemSummary: { totalOn: 0, totalOff: 0, totalSystemEvents: 0, buckets: [] },
+      events: [],
+    };
+  }
 
   const docs = await Reading.find({
     unitId,
@@ -134,13 +192,19 @@ async function getEvents(unitId, hours, category = 'all') {
     .lean();
 
   const all = deriveEvents(docs);
+
+  // Summarise system events across the WHOLE window — before category filtering and
+  // before the cap — so the totals stay true even when individual events are truncated
+  // or filtered out of `events` below.
+  const systemSummary = summarizeSystemEvents(all);
+
   // Filter BEFORE capping, so frequent thermostat cycling can never push real user
   // events out of the newest-MAX_EVENTS window.
   const matching = category === 'all' ? all : all.filter((event) => event.category === category);
   const truncated = matching.length > MAX_EVENTS;
   const kept = truncated ? matching.slice(matching.length - MAX_EVENTS) : matching;  // newest
 
-  return { unitId, hours, category, limit: MAX_EVENTS, truncated, events: kept.reverse() };
+  return { unitId, hours, category, limit: MAX_EVENTS, truncated, systemSummary, events: kept.reverse() };
 }
 
 module.exports = {
@@ -150,6 +214,7 @@ module.exports = {
   computeStride,
   sampleEvery,
   deriveEvents,
+  summarizeSystemEvents,
   MAX_POINTS,
   MAX_EVENTS,
   MAX_HOURS,

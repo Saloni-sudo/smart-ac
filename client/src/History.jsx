@@ -31,6 +31,13 @@ const formatSimDateTime = (iso) =>
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   });
 
+// A simulated-hour bucket label, e.g. "29 Jul, 10:30–11:30". Both ends are parsed from
+// the bucket's own simulated timestamps; the wall clock is never consulted.
+const formatSimHourRange = (startIso, endIso) =>
+  `${formatSimDateTime(startIso)}–${new Date(endIso).toLocaleTimeString([], {
+    hour: '2-digit', minute: '2-digit',
+  })}`;
+
 // Describe the sampling using the returned points themselves: the median gap between
 // consecutive simulated timestamps. Derived from the real data that arrived, so the
 // simulator's internal tick rate never has to be known by the client.
@@ -72,16 +79,13 @@ const toggleStyle = {
   cursor: 'pointer',
 };
 
-// System (thermostat) rows are muted so the user's own changes read as the primary ones.
-const systemRowStyle = { opacity: 0.6 };
-
-const systemTagStyle = {
-  marginLeft: 'var(--space-2)',
-  padding: '2px var(--space-2)',
-  borderRadius: 'var(--radius-pill)',
-  background: 'var(--surface-2)',
-  color: 'var(--muted)',
-  fontSize: 'var(--text-xs)',
+// Shared by both subheadings inside the Events card ("My changes" and "AC cycling"), so
+// the two sections read as siblings rather than as two different kinds of thing.
+const subheadingStyle = {
+  fontSize: 'var(--text-sm)',
+  fontWeight: 500,
+  color: 'var(--text-h)',
+  margin: 'var(--space-5) 0 var(--space-3)',
 };
 
 function History() {
@@ -99,12 +103,14 @@ function History() {
     async function load() {
       try {
         const params = `unitId=${encodeURIComponent(UNIT_ID)}&hours=${WINDOW_HOURS}`;
-        // Ask the server for the category we're showing. Filtering server-side matters:
-        // it applies before the newest-N cap, so cycling can't crowd out user events.
-        const category = showSystem ? 'all' : 'user';
+        // Always ask for the user events. Filtering server-side matters: it applies
+        // before the newest-N cap, so cycling can never crowd out real user changes.
+        // Cycling itself is rendered from `systemSummary`, which the server computes
+        // over the whole window regardless of this filter — so one request serves both,
+        // and toggling is a pure display change with no refetch.
         const [historyRes, eventsRes] = await Promise.all([
           fetch(`${apiUrl}/api/readings/history?${params}`),
-          fetch(`${apiUrl}/api/readings/events?${params}&category=${category}`),
+          fetch(`${apiUrl}/api/readings/events?${params}&category=user`),
         ]);
 
         if (!historyRes.ok || !eventsRes.ok) {
@@ -122,9 +128,7 @@ function History() {
 
     load();
     return () => { cancelled = true; };   // ignore a late response after unmount
-    // Re-runs when the toggle changes. Deliberately does NOT reset status to 'loading',
-    // so the chart and the existing list stay put while the new list arrives.
-  }, [showSystem]);
+  }, []);
 
   const header = (
     <header className="page-header">
@@ -162,6 +166,9 @@ function History() {
   const points = state.history.points;
   const events = state.events.events;
   const gap = describeGap(medianGapSeconds(points));
+  // Fall back to an empty summary so an older backend can't break the page.
+  const summary = state.events.systemSummary
+    || { totalOn: 0, totalOff: 0, totalSystemEvents: 0, buckets: [] };
 
   return (
     <div className="page">
@@ -232,27 +239,23 @@ function History() {
           <span style={{ color: 'var(--muted)' }}>(automatic thermostat on/off)</span>
         </label>
 
+        {/* Section 1 — the user's own actions. Always shown. */}
+        <p style={subheadingStyle}>My changes</p>
+
         {events.length === 0 ? (
-          // Two distinct messages: "you made no changes" is not the same as "nothing
-          // happened", and hiding cycling must never read as an absence of data.
+          // "You made no changes" is not the same as "nothing happened" — cycling is
+          // summarised separately below, so this message only ever speaks to user events.
           <div className="placeholder">
             {showSystem
-              ? 'No activity in this window yet.'
+              ? 'No changes of yours in this window yet.'
               : 'No changes of yours in this window yet — automatic AC cycling is hidden.'}
           </div>
         ) : (
           <ul className="event-list">
             {events.map((event, i) => (
-              <li
-                className="event-item"
-                key={`${event.timestamp}-${event.type}-${i}`}
-                style={event.category === 'system' ? systemRowStyle : undefined}
-              >
+              <li className="event-item" key={`${event.timestamp}-${event.type}-${i}`}>
                 <span className="event-time">{formatSimDateTime(event.timestamp)}</span>
-                <span className="event-desc">
-                  {event.description}
-                  {event.category === 'system' && <span style={systemTagStyle}>auto</span>}
-                </span>
+                <span className="event-desc">{event.description}</span>
               </li>
             ))}
           </ul>
@@ -263,12 +266,51 @@ function History() {
           recorded. Events are derived only from real changes between consecutive stored
           readings.
           {!showSystem
-            ? ' Automatic AC cycling is hidden here, not removed — tick the box to include it.'
-            : ' Rows tagged “auto” are the thermostat acting on its own; the rest are your changes.'}
+            ? ' Automatic AC cycling is hidden here, not removed — tick the box to summarise it.'
+            : ''}
           {state.events.truncated
             ? ` Showing the ${state.events.limit} most recent events.`
             : ''}
         </p>
+
+        {/* Cycling is summarised per simulated hour rather than listed row by row: over a
+            24-hour window the thermostat switches hundreds of times. Every one of those
+            real transitions is counted here — on and off alike — and the individual events
+            are still available from the API (category=all or category=system). */}
+        {showSystem && (
+          <>
+            {/* Section 2 — the thermostat's own activity. Only shown when toggled on. */}
+            <p style={subheadingStyle}>AC cycling, by simulated hour</p>
+
+            {summary.totalSystemEvents === 0 ? (
+              <div className="placeholder">No AC cycling in this window.</div>
+            ) : (
+              <>
+                <ul className="event-list">
+                  {summary.buckets.map((bucket) => (
+                    <li className="event-item" key={bucket.hourStart}>
+                      <span className="event-time">
+                        {formatSimHourRange(bucket.hourStart, bucket.hourEnd)} (sim)
+                      </span>
+                      <span className="event-desc">
+                        AC switched {bucket.cycleCount} times
+                        <span style={{ color: 'var(--muted)' }}>
+                          {' '}({bucket.onCount} on, {bucket.offCount} off)
+                        </span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="note">
+                  AC switched {summary.totalSystemEvents} times in this window
+                  ({summary.totalOn} on, {summary.totalOff} off). Hours are simulated-time
+                  hours taken from each reading&rsquo;s timestamp, and only hours with
+                  cycling are listed. Counts are real thermostat transitions, not estimates.
+                </p>
+              </>
+            )}
+          </>
+        )}
       </section>
     </div>
   );

@@ -61,6 +61,8 @@ router.get('/history', async (req, res) => {
 // GET /api/readings/events?unitId=<id>&hours=<n>&category=<all|user|system>
 // Activity log derived strictly from real transitions between consecutive readings.
 // `category` narrows what is returned; it never changes how events are detected.
+// The response also carries `systemSummary`: per-simulated-hour counts of the thermostat's
+// own on/off transitions, computed over the whole window before filtering and capping.
 router.get('/events', async (req, res) => {
   const params = parseParams(req.query);
   if (params.error) return res.status(400).json({ error: params.error });

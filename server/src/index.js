@@ -45,9 +45,8 @@ const io = new Server(server, {
 const driver = createDriver();
 const manager = new DeviceManager(driver);
 
-// Persist every reading. The recorder subscribes to the same reading stream the socket
-// broadcast uses, via the driver's onReading contract — it holds no other coupling.
-const recorder = new ReadingRecorder(driver);   // constructed for its subscription
+// The reading recorder is attached later, inside start(), and only once the port is
+// ours and the database is up — see the ordering note there.
 
 // Seed one simulated unit. Every value here is an ASSUMED simulation value, not a
 // measured figure for any real room or AC.
@@ -92,16 +91,43 @@ io.on('connection', (socket) => {
   });
 });
 
-// Connect to the database BEFORE the tick loop starts, so we never emit a reading we
-// can't store. connectDB exits the process if the database is unreachable.
+// Claim the port before touching anything else. A duplicate launch (port already taken)
+// must exit here — before any database connection exists — so it cannot write a single
+// reading. Resolves only once this process owns the port.
+function listenOrExit() {
+  return new Promise((resolve) => {
+    const onError = (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(
+          `Port ${PORT} already in use — is the server already running? Exiting without writing.`
+        );
+      } else {
+        console.error(`Server failed to start: ${err.message}`);
+      }
+      process.exit(1);                 // nothing has connected to the database yet
+    };
+
+    server.once('error', onError);
+    server.listen(PORT, () => {
+      server.off('error', onError);    // startup succeeded; this guard no longer applies
+      console.log(`Server running on http://localhost:${PORT}`);
+      resolve();
+    });
+  });
+}
+
+// Startup order matters:
+//   1. bind the port   — a doomed second instance dies here, having written nothing
+//   2. connect the DB  — still fails loud and exits if the database is unreachable
+//   3. attach recorder — the only thing that writes readings
+//   4. start the driver — nothing ticks, emits, or is stored before this point
 async function start() {
+  await listenOrExit();
   await connectDB();
 
-  driver.start();
+  new ReadingRecorder(driver);   // subscribes to the driver's reading stream
 
-  server.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  driver.start();
 }
 
 start();
